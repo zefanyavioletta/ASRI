@@ -943,7 +943,7 @@ def validate_database():
 # =====================================
 
 def create_database_backup():
-    backup_dir = os.path.join(BASE_DIR, "database_backups")
+    backup_dir = os.path.join(DATA_DIR, "database_backups")
     os.makedirs(backup_dir, exist_ok=True)
     backup_path = os.path.join(backup_dir, f"detection_history_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
     source = sqlite3.connect(DB_PATH, timeout=30)
