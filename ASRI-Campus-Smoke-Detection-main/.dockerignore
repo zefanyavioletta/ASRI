@@ -1,0 +1,8 @@
+.git
+venv
+.venv
+__pycache__
+*.db
+captures
+database_backups
+*.mp4
