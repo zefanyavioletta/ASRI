@@ -19,8 +19,9 @@ import shutil
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
-DB_PATH = os.path.join(BASE_DIR, "detection_history.db")
-CAPTURE_DIR = os.path.join(BASE_DIR, "captures")
+DATA_DIR = os.environ.get("DATA_DIR", BASE_DIR)
+DB_PATH = os.path.join(DATA_DIR, "detection_history.db")
+CAPTURE_DIR = os.path.join(DATA_DIR, "captures")
 WEBCAM_CAPTURE_INTERVAL = 60  # detik
 
 # Nama model deployment E8. model_final.pt disediakan sebagai fallback.
