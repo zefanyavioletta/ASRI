@@ -81,7 +81,7 @@ footer{font-size:11px;padding:17px 38px}
 .hero p{max-width:510px;font-size:15px;line-height:1.75;margin:13px 0 0;color:#607b6a}
 .hero-art{min-height:270px;background-image:linear-gradient(90deg,#edf7e9 0%,rgba(237,247,233,.45) 10%,rgba(237,247,233,0) 34%),url('../assets/campus-situation-animation.jpg');background-size:cover;background-position:center 52%}
 @media(max-width:1150px){.hero{grid-template-columns:1fr .8fr}.hero h2{font-size:25px}}
-@media(max-width:760px){.hero{grid-template-columns:1fr}.hero-copy{padding:25px 22px}.hero h2{font-size:23px}.hero p{font-size:13px}.hero-art{min-height:180px;background-image:linear-gradient(180deg,#edf7e9 0%,rgba(237,247,233,0) 28%),url('../assets/campus-situation-animation.jpg')}}
+@media(max-width:760px){.hero{grid-template-columns:1fr}.hero-copy{padding:25px 22px}.hero h2{font-size:23px}.hero p{font-size:13px}.hero-art{min-height:180px;background-image:linear-gradient(180deg,#edf7e9 0%,rgba(237,247,233,0) 28%),url('../assets/campus-situation-animation.jpeg')}}
 
 /* ===== ASRI — Login, akun & peran (tambahan) ===== */
 [hidden]{display:none!important}
