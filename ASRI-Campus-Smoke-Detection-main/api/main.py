@@ -3,13 +3,17 @@ from __future__ import annotations
 
 import base64
 import os
+import secrets
+import threading
+import time
 import tempfile
 from datetime import datetime, date
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
+from pydantic import BaseModel, Field
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
@@ -97,11 +101,125 @@ async def detect_image(file: UploadFile = File(...), confidence: float = Form(le
 async def camera_frame(file: UploadFile = File(...), confidence: float = Form(legacy.DEFAULT_CONFIDENCE)):
     try:
         pil = Image.open(BytesIO(await file.read())).convert("RGB")
-        output, summary, fps, alert, signal = legacy.detect_webcam_stream(pil, confidence, True)
+        with _yolo_lock:
+            output, summary, fps, alert, signal = legacy.detect_webcam_stream(pil, confidence, True)
         return {"image": image_data_url(output) if output else None, "summary": summary,
                 "fps": fps, "alert": alert, "signal": signal}
     except Exception as exc:
         raise HTTPException(500, f"Pemrosesan frame kamera gagal: {exc}")
+
+
+# Multi-camera support. Camera tokens are secrets used only by the camera device/bridge.
+_camera_results = {}
+_camera_lock = threading.Lock()
+_yolo_lock = threading.Lock()
+
+class CameraCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=60)
+    kind: str = Field(..., pattern="^(phone|cctv)$")
+
+
+def init_camera_table():
+    con = legacy.get_database_connection()
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS cameras (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind TEXT NOT NULL,
+            token TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+
+def get_camera(camera_id: int):
+    con = legacy.get_database_connection()
+    try:
+        return con.execute("SELECT id,name,kind,token,created_at FROM cameras WHERE id=?", (camera_id,)).fetchone()
+    finally:
+        con.close()
+
+
+init_camera_table()
+
+@app.get("/api/cameras")
+def list_cameras():
+    con = legacy.get_database_connection()
+    try:
+        rows = con.execute("SELECT id,name,kind,created_at FROM cameras ORDER BY id DESC").fetchall()
+        with _camera_lock:
+            active = set(_camera_results.keys())
+        return {"cameras": [{"id": r[0], "name": r[1], "kind": r[2], "created_at": r[3], "has_frame": r[0] in active} for r in rows]}
+    finally:
+        con.close()
+
+
+@app.post("/api/cameras")
+def create_camera(payload: CameraCreate, request: Request):
+    con = legacy.get_database_connection()
+    try:
+        count = con.execute("SELECT COUNT(*) FROM cameras").fetchone()[0]
+        if count >= 4:
+            raise HTTPException(400, "Maksimal 4 kamera tambahan. Hapus kamera yang tidak digunakan terlebih dahulu.")
+        token = secrets.token_urlsafe(32)
+        cur = con.execute("INSERT INTO cameras(name,kind,token,created_at) VALUES(?,?,?,?)",
+                           (payload.name.strip(), payload.kind, token, datetime.now().astimezone().isoformat(timespec="seconds")))
+        con.commit()
+        camera_id = cur.lastrowid
+        base = str(request.base_url).rstrip("/")
+        return {"id": camera_id, "name": payload.name.strip(), "kind": payload.kind, "token": token,
+                "publisher_url": f"{base}/camera-publisher.html?id={camera_id}&token={token}"}
+    finally:
+        con.close()
+
+
+@app.delete("/api/cameras/{camera_id}")
+def delete_camera(camera_id: int):
+    con = legacy.get_database_connection()
+    try:
+        cur = con.execute("DELETE FROM cameras WHERE id=?", (camera_id,))
+        con.commit()
+        if not cur.rowcount:
+            raise HTTPException(404, "Kamera tidak ditemukan.")
+        with _camera_lock:
+            _camera_results.pop(camera_id, None)
+        return {"message": "Kamera berhasil dihapus."}
+    finally:
+        con.close()
+
+
+@app.post("/api/cameras/{camera_id}/frame")
+async def receive_camera_frame(camera_id: int, token: str = Form(...), file: UploadFile = File(...), confidence: float = Form(legacy.DEFAULT_CONFIDENCE)):
+    camera = get_camera(camera_id)
+    if not camera or not secrets.compare_digest(camera[3], token):
+        raise HTTPException(403, "Token kamera tidak valid.")
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Frame harus berupa gambar.")
+    if not 0.1 <= confidence <= 0.9:
+        raise HTTPException(400, "Confidence harus antara 10% dan 90%.")
+    try:
+        pil = Image.open(BytesIO(await file.read())).convert("RGB")
+        # Model YOLO dipakai bersama; serialisasi inferensi mencegah request kamera saling bertabrakan.
+        with _yolo_lock:
+            output, summary, fps, alert, signal = legacy.detect_webcam_stream(pil, confidence, True)
+        result = {"camera_id": camera_id, "name": camera[1], "image": image_data_url(output) if output else None,
+                  "summary": summary, "fps": fps, "alert": alert, "signal": signal, "updated_at": time.time()}
+        with _camera_lock:
+            _camera_results[camera_id] = result
+        return {"ok": True, "summary": summary, "fps": fps}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500, f"Pemrosesan kamera gagal: {exc}")
+
+
+@app.get("/api/cameras/{camera_id}/latest")
+def latest_camera_frame(camera_id: int):
+    with _camera_lock:
+        result = _camera_results.get(camera_id)
+    if not result:
+        return {"online": False, "message": "Belum menerima frame dari kamera."}
+    online = time.time() - result["updated_at"] < 12
+    return {**result, "online": online}
 
 
 @app.post("/api/detect/video")
