@@ -467,7 +467,7 @@ def install_auth(app: FastAPI) -> None:
     @app.middleware("http")
     async def auth_guard(request: Request, call_next):
         path = request.url.path
-        if path.startswith("/api/") and path not in PUBLIC_API:
+        if path.startswith("/api/") and path not in PUBLIC_API and not (path.startswith("/api/cameras/") and path.endswith("/frame")):
             token = request.cookies.get(SESSION_COOKIE)
             user = await run_in_threadpool(user_from_token, token)
             if not user:
